@@ -1,0 +1,378 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+By Martine Lysebo
+
+```{r}
+#importing library
+library(lubridate)
+```
+
+```{r}
+#read raw data into dataframes
+week_6 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week6.csv", header=TRUE)
+week_7 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week7.csv",header=TRUE)
+week_8 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week8.csv",header=TRUE)
+week_9 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week9.csv",header=TRUE)
+week_10 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week10.csv",header=TRUE)
+week_11 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week11.csv",header=TRUE)
+week_12 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week12.csv",header=TRUE)
+week_13 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week13.csv",header=TRUE)
+week_14 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week14.csv",header=TRUE)
+week_15 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week15.csv",header=TRUE)
+week_16 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week16.csv",header=TRUE)
+week_17 <- read.csv("https://raw.githubusercontent.com/Faiga91/Koopen/master/Raw%20Data/week17.csv",header=TRUE)
+```
+
+
+```{r}
+#combine all weeks in one dataframe and save it for later use
+raw_data_total <- do.call("rbind", list(week_6,week_7,week_8,week_9,week_10,week_11,week_12,week_13,week_14,week_15,week_16,week_17))
+write.csv(raw_data_total,"rawdatatotal.csv")
+```
+
+
+```{r}
+#extract only the data from one sensor
+df_from_only_one_sensor <- function(df, sensor) {
+  delete_rows <- c()
+  count <- 1
+  for (i in 1:length(df$time)){
+    if (df$sensor[i]!=sensor){
+      delete_rows[count] <- i
+      count <- count + 1
+    }
+  }
+  new_df <- df[-delete_rows, ]
+  return(new_df)
+}
+
+raw_data <- df_from_only_one_sensor(raw_data_total,"node_01") #choosing data from sensor="node_01"
+```
+
+```{r}
+#replace all zero values with NA 
+raw_data[raw_data == 0] <- NA 
+```
+
+```{r}
+#make generated resampled sets for different sampling intervals based on an algorithm by Faiga Alawad
+resample_faigaway <- function(data_arr, sampling_rate) { 
+    offset <- round (sampling_rate / 2)
+    resampled_time <- c(data_arr$time[1])
+    resampled_Leq <- c(data_arr$Leq[1])
+    i <- 1
+    index <- 1
+    while ((i + offset)<length(data_arr$time)){
+        resampled_time[index] <- data_arr$time[i + offset]
+        resampled_Leq[index] <- data_arr$Leq[i + offset]
+        i <- i + offset
+        index <- index + 1
+    }
+    resampled_data <- data.frame("time" = resampled_time, "Leq" = resampled_Leq)
+    return(resampled_data)
+}
+
+raw_data_4 <- resample_faigaway(raw_data,4)
+raw_data_10 <- resample_faigaway(raw_data,10)
+raw_data_20 <- resample_faigaway(raw_data,20)
+raw_data_30 <- resample_faigaway(raw_data,30)
+raw_data_60 <- resample_faigaway(raw_data,60)
+raw_data_120 <- resample_faigaway(raw_data,120)
+raw_data_180 <- resample_faigaway(raw_data,180)
+raw_data_300 <- resample_faigaway(raw_data,300)
+raw_data_450 <- resample_faigaway(raw_data,450)
+raw_data_900 <- resample_faigaway(raw_data,900)
+```
+
+```{r}
+#add starting time with value NA to make sure all datasets get equal cutting on whole quarters and hours later on
+raw_data <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA,sensor="node_01"),raw_data)
+raw_data_4 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_4)
+raw_data_10 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_10)
+raw_data_20 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_20)
+raw_data_30 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_30)
+raw_data_60 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_60)
+raw_data_120 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_120)
+raw_data_180 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_180)
+raw_data_300 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_300)
+raw_data_450 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_450)
+raw_data_900 <- rbind(data.frame(time="2019-02-06 16:00:00",Leq=NA),raw_data_900)
+```
+
+
+```{r}
+#functions to set up indicators 
+indicator_10 <- function(li,t){
+  if (length(li) ==0){
+    return(NA)
+  }else{
+    return(quantile(li,probs=0.9, na.rm = TRUE,
+         names = TRUE, type = t))
+  }
+}
+indicator_50 <- function(li,t){
+  if (length(li) ==0){
+    return(NA)
+  }else{
+    return(quantile(li,probs=0.5, na.rm = TRUE,
+         names = TRUE, type = t))
+  }
+}
+
+indicator_90 <- function(li,t){
+  if (length(li) ==0){
+    return(NA)
+  }else{
+    return(quantile(li,probs=0.1, na.rm = TRUE,
+         names = TRUE, type = t))
+  }
+}
+
+indicator_1090 <- function(i_10,i_90){
+  if ((is.na(i_10) | is.na(i_90))==TRUE){
+    return(NA)
+  }
+  return(i_10-i_90)
+}
+```
+
+```{r}
+#set up data for nowcasting with T=15 min and quantile algorithm type 8
+set_up_15_data <- function(df,q){
+  df$time <- ymd_hms(df$time)
+  cuts_15 <- table(cut(df$time, breaks = "15 min"))
+  timepoint <- 1
+  time_list <- c()
+  indicator10_list <- c()
+  indicator50_list <- c()
+  indicator90_list <- c()
+  indicator1090_list <- c()
+  for (i in 2:length(cuts_15)){
+    indicator10_list[i] <- indicator_10(df[timepoint:(timepoint+cuts_15[i]),2],q)
+    indicator50_list[i] <- indicator_50(df[timepoint:(timepoint+cuts_15[i]),2],q)
+    indicator90_list[i] <- indicator_90(df[timepoint:(timepoint+cuts_15[i]),2],q)
+    indicator1090_list[i] <- indicator_1090(indicator10_list[i],indicator90_list[i])
+    
+    time_list[i] <- labels(cuts_15[i])
+    timepoint <- timepoint + cuts_15[i]
+  }
+  return(data.frame("time" = time_list, "L10" = indicator10_list,"L50" = indicator50_list,"L90" = indicator90_list,"L1090" = indicator1090_list))
+}
+
+data15 <- set_up_15_data(raw_data,8)
+data15_4 <- set_up_15_data(raw_data_4,8)
+data15_10 <- set_up_15_data(raw_data_10,8)
+data15_20 <- set_up_15_data(raw_data_20,8)
+data15_30 <- set_up_15_data(raw_data_30,8)
+data15_60 <- set_up_15_data(raw_data_60,8)
+data15_120 <- set_up_15_data(raw_data_120,8)
+data15_180 <- set_up_15_data(raw_data_180,8)
+data15_300 <- set_up_15_data(raw_data_300,8)
+data15_450 <- set_up_15_data(raw_data_450,8)
+```
+
+```{r}
+#set up datasets to compare for different quantile estimators and T=15 min
+quantiledata <- function(q1){
+    data15_q1 <- set_up_15_data(raw_data,q1)
+    data15_4_q1 <- set_up_15_data(raw_data_4,q1)
+    data15_10_q1 <- set_up_15_data(raw_data_10,q1)
+    data15_20_q1 <- set_up_15_data(raw_data_20,q1)
+    data15_30_q1 <- set_up_15_data(raw_data_30,q1)
+    data15_60_q1 <- set_up_15_data(raw_data_60,q1)
+    data15_120_q1 <- set_up_15_data(raw_data_120,q1)
+    data15_180_q1 <- set_up_15_data(raw_data_180,q1)
+    data15_300_q1 <- set_up_15_data(raw_data_300,q1)
+    data15_450_q1 <- set_up_15_data(raw_data_450,q1)
+    
+    data_15min_q1 <- data.frame("time"=data15_q1$time, "L10"= data15_q1$L10, "L10_4"= data15_4_q1$L10, "L10_10"= data15_10_q1$L10, "L10_20"= data15_20_q1$L10, "L10_30"= data15_30_q1$L10, "L10_60"= data15_60_q1$L10, "L10_120"= data15_120_q1$L10, "L10_180"= data15_180_q1$L10, "L10_300"= data15_300_q1$L10, "L10_450"= data15_450_q1$L10)
+    data_15min_q1 <- data_15min_q1[-1, ]
+    return(data_15min_q1)
+}
+
+data1 <- quantiledata(1)
+data2 <- quantiledata(2)
+data3 <- quantiledata(3)
+data4 <- quantiledata(4)
+data5 <- quantiledata(5)
+data6 <- quantiledata(6)
+data7 <- quantiledata(7)
+data8 <- quantiledata(8)
+data9 <- quantiledata(9)
+```
+
+```{r}
+#set up dataset for longtime surveillance
+set_up_all_data <-function(df){
+  L10 <- indicator_10(df$Leq,8)
+  L50 <- indicator_50(df$Leq,8)
+  L90 <- indicator_90(df$Leq,8)
+  L1090 <- indicator_1090(L10,L90)
+  return(data.frame("time" = "2019-02-06 to 2019-04-26", "L10" = L10,"L50" = L50,"L90" = L90,"L1090" = L1090))
+}
+
+data <- set_up_all_data(raw_data)
+data_4 <- set_up_all_data(raw_data_4)
+data_10 <- set_up_all_data(raw_data_10)
+data_20 <- set_up_all_data(raw_data_20)
+data_30 <- set_up_all_data(raw_data_30)
+data_60 <- set_up_all_data(raw_data_60)
+data_120 <- set_up_all_data(raw_data_120)
+data_180 <- set_up_all_data(raw_data_180)
+data_300 <- set_up_all_data(raw_data_300)
+data_450 <- set_up_all_data(raw_data_450)
+```
+
+```{r}
+#set up functions for classification of indicator values
+label_L10 <-function(indicator){
+  if(is.na(indicator)){
+    return("NA")
+  }else if (indicator < 50){
+    return("good")
+  }else if (indicator > 60){
+    return("poor")
+  }
+  return("fair")
+}
+
+label_L50 <-function(indicator){
+  if(is.na(indicator)){
+    return("NA")
+  }else if (indicator < 45){
+    return("good")
+  }else if (indicator > 55){
+    return("poor")
+  }
+  return("fair")
+}
+
+label_L90 <-function(indicator){
+  if(is.na(indicator)){
+    return("NA")
+  }else if (indicator < 42){
+    return("good")
+  }else if (indicator > 52){
+    return("poor")
+  }
+  return("fair")
+}
+
+label_L1090 <-function(indicator){
+  if(is.na(indicator)){
+    return("NA")
+  } else if (indicator < 3){
+    return("good")
+  }else if (indicator > 5){
+    return("poor")
+  }
+  return("fair")
+}
+
+set_labels <-function(df){
+  L10_labels <- c()
+  L50_labels <- c()
+  L90_labels <- c()
+  L1090_labels <- c()
+  for (i in 1:length(df$time)){
+    L10_labels[i] <- label_L10(df$L10[i])
+    L50_labels[i] <- label_L50(df$L50[i])
+    L90_labels[i] <- label_L90(df$L90[i])
+    L1090_labels[i] <- label_L1090(df$L1090[i])
+  }
+  return(cbind(df,L10_labels,L50_labels,L90_labels,L1090_labels))
+}
+```
+
+```{r}
+#classify the nowcasting T=15 datasets
+data15 <-set_labels(data15)
+data15_4 <-set_labels(data15_4)
+data15_10 <-set_labels(data15_10)
+data15_20 <-set_labels(data15_20)
+data15_30 <-set_labels(data15_30)
+data15_60 <-set_labels(data15_60)
+data15_120 <-set_labels(data15_120)
+data15_180 <-set_labels(data15_180)
+data15_300 <-set_labels(data15_300)
+data15_450 <-set_labels(data15_450)
+```
+
+```{r}
+#Set up bool values for workhour, weekend and holiday for the nowcasting with T=15min dataset and the raw data from sensor 01
+set_workhour <-function(data){
+  workhour <- c()
+  for (i in 1:length(data$time)){
+    if(is.na(hour(data$time[i]))){
+      workhour[i] <- NA
+    } else if ((hour(data$time[i])>7)&(hour(data$time[i])<19)){
+      workhour[i] <- TRUE
+    } else {workhour[i]<- FALSE}
+  }
+  return(workhour)
+}
+
+set_weekend <-function(data){
+  weekend <- c()
+  for (i in 1:length(data$time)){
+    if(is.na(wday(data$time[i]))){
+      weekend[i] <- NA
+    } else if (wday(data$time[i])==(1|7)){
+      weekend[i] <- TRUE
+    } else {weekend[i]<- FALSE}
+  }
+  return(weekend)
+}
+
+set_holiday <-function(data){
+  holiday <- c()
+  for (i in 1:length(data$time)){
+    if(is.na(date(data$time[i]))){
+      holiday[i] <- NA
+    } else if ((date(data$time[i])<"2019-04-13")&(date(data$time[i])>"2019-04-22")){
+      holiday[i] <- TRUE
+    } else {holiday[i]<- FALSE}
+  }
+  return(holiday)
+}
+
+data15_workhour <- set_workhour(data15)
+data15_weekend <- set_weekend(data15)
+data15_holiday <- set_holiday(data15)
+
+raw_data$workhour <- set_workhour(raw_data)
+raw_data$weekend <- set_weekend(raw_data)
+raw_data$holiday <- set_holiday(raw_data)
+```
+
+
+```{r}
+#set up total dataframes for nowcasting with T=15min and longtime surveillance with T=total dataset
+data_15min <- data.frame("time"=data15$time, "L10"= data15$L10, "L50"= data15$L50, "L90"= data15$L90,"L1090"= data15$L1090, "L10_4"= data15_4$L10, "L50_4"= data15_4$L50, "L90_4"= data15_4$L90,"L1090_4"= data15_4$L1090, "L10_10"= data15_10$L10, "L50_10"= data15_10$L50, "L90_10"= data15_10$L90,"L1090_10"= data15_10$L1090, "L10_20"= data15_20$L10, "L50_20"= data15_20$L50, "L90_20"= data15_20$L90,"L1090_20"= data15_20$L1090, "L10_30"= data15_30$L10, "L50_30"= data15_30$L50, "L90_30"= data15_30$L90,"L1090_30"= data15_30$L1090, "L10_60"= data15_60$L10, "L50_60"= data15_60$L50, "L90_60"= data15_60$L90,"L1090_60"= data15_60$L1090, "L10_120"= data15_120$L10, "L50_120"= data15_120$L50, "L90_120"= data15_120$L90,"L1090_120"= data15_120$L1090, "L10_180"= data15_180$L10, "L50_180"= data15_180$L50, "L90_180"= data15_180$L90,"L1090_180"= data15_180$L1090, "L10_300"= data15_300$L10, "L50_300"= data15_300$L50, "L90_300"= data15_300$L90,"L1090_300"= data15_300$L1090, "L10_450"= data15_450$L10, "L50_450"= data15_450$L50, "L90_450"= data15_450$L90, "L1090_450"= data15_450$L1090, "L10_labels"=data15$L10_labels, "L50_labels"=data15$L50_labels, "L90_labels"=data15$L90_labels, "L1090_labels"=data15$L1090_labels, "L10_4_labels"=data15_4$L10_labels, "L50_4_labels"=data15_4$L50_labels, "L90_4_labels"=data15_4$L90_labels, "L1090_4_labels"=data15_4$L1090_labels, "L10_10_labels"=data15_10$L10_labels, "L50_10_labels"=data15_10$L50_labels, "L90_10_labels"=data15_10$L90_labels, "L1090_10_labels"=data15_10$L1090_labels, "L10_20_labels"=data15_20$L10_labels, "L50_20_labels"=data15_20$L50_labels, "L90_20_labels"=data15_20$L90_labels, "L1090_20_labels"=data15_20$L1090_labels, "L10_30_labels"=data15_30$L10_labels, "L50_30_labels"=data15_30$L50_labels, "L90_30_labels"=data15_30$L90_labels, "L1090_30_labels"=data15_30$L1090_labels, "L10_60_labels"=data15_60$L10_labels, "L50_60_labels"=data15_60$L50_labels, "L90_60_labels"=data15_60$L90_labels, "L1090_60_labels"=data15_60$L1090_labels, "L10_120_labels"=data15_120$L10_labels, "L50_120_labels"=data15_120$L50_labels, "L90_120_labels"=data15_120$L90_labels, "L1090_120_labels"=data15_120$L1090_labels,  "L10_180_labels"=data15_180$L10_labels, "L50_180_labels"=data15_180$L50_labels, "L90_180_labels"=data15_180$L90_labels, "L1090_180_labels"=data15_180$L1090_labels, "L10_300_labels"=data15_300$L10_labels, "L50_300_labels"=data15_300$L50_labels, "L90_300_labels"=data15_300$L90_labels, "L1090_300_labels"=data15_300$L1090_labels, "L10_450_labels"=data15_450$L10_labels, "L50_450_labels"=data15_450$L50_labels, "L90_450_labels"=data15_450$L90_labels, "L1090_450_labels"=data15_450$L1090_labels, "workhour"=data15_workhour,"weekend"=data15_weekend,"holiday"=data15_holiday)
+
+data_all <- data.frame("time"=data$time, "L10"= data$L10, "L50"= data$L50, "L90"= data$L90,"L1090"= data$L1090, "L10_4"= data_4$L10, "L50_4"= data_4$L50, "L90_4"= data_4$L90,"L1090_4"= data_4$L1090, "L10_10"= data_10$L10, "L50_10"= data_10$L50, "L90_10"= data_10$L90,"L1090_10"= data_10$L1090, "L10_20"= data_20$L10, "L50_20"= data_20$L50, "L90_20"= data_20$L90,"L1090_20"= data_20$L1090, "L10_30"= data_30$L10, "L50_30"= data_30$L50, "L90_30"= data_30$L90,"L1090_30"= data_30$L1090, "L10_60"= data_60$L10, "L50_60"= data_60$L50, "L90_60"= data_60$L90,"L1090_60"= data_60$L1090, "L10_120"= data_120$L10, "L50_120"= data_120$L50, "L90_120"= data_120$L90,"L1090_120"= data_120$L1090, "L10_180"= data_180$L10, "L50_180"= data_180$L50, "L90_180"= data_180$L90,"L1090_180"= data_180$L1090, "L10_300"= data_300$L10, "L50_300"= data_300$L50, "L90_300"= data_300$L90,"L1090_300"= data_300$L1090, "L10_450"= data_450$L10, "L50_450"= data_450$L50, "L90_450"= data_450$L90,"L1090_450"= data_450$L1090)
+```
+
+```{r}
+#delete first row that only consists NAs for the dataframe with T=15 min
+data_15min <- data_15min[-1, ]
+```
+
+```{r}
+#write dataframes to local files
+write.csv(data_15min,"data15min.csv")
+write.csv(data_all,"datatotal.csv")
+write.csv(raw_data,"rawdata.csv")
+
+write.csv(data1,"qestimator1.csv")
+write.csv(data2,"qestimator2.csv")
+write.csv(data3,"qestimator3.csv")
+write.csv(data4,"qestimator4.csv")
+write.csv(data5,"qestimator5.csv")
+write.csv(data6,"qestimator6.csv")
+write.csv(data7,"qestimator7.csv")
+write.csv(data8,"qestimator8.csv")
+write.csv(data9,"qestimator9.csv")
+```

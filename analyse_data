@@ -1,0 +1,905 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+By Martine Lysebo
+
+```{r}
+#importing librarys 
+library(lubridate)
+library(LaplacesDemon)
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+```
+
+
+```{r}
+#read dataframes from local csv files
+setwd("~/Desktop")
+df15 <- read.csv(file= "data15min.csv", header=TRUE) #Nowcasting
+dfall <- read.csv(file = "datatotal.csv", header=TRUE) #Long time surveillance
+draw <- read.csv(file = "rawdata.csv", header=TRUE) #Raw data
+
+data1 <- read.csv(file = "qestimator1.csv", header=TRUE) #Quantile algorithm=1
+data2 <- read.csv(file = "qestimator2.csv", header=TRUE) #Quantile algorithm=2
+data3 <- read.csv(file = "qestimator3.csv", header=TRUE) #Quantile algorithm=3
+data4 <- read.csv(file = "qestimator4.csv", header=TRUE) #Quantile algorithm=4
+data5 <- read.csv(file = "qestimator5.csv", header=TRUE) #Quantile algorithm=5
+data6 <- read.csv(file = "qestimator6.csv", header=TRUE) #Quantile algorithm=6
+data7 <- read.csv(file = "qestimator7.csv", header=TRUE) #Quantile algorithm=7
+data8 <- read.csv(file = "qestimator8.csv", header=TRUE) #Quantile algorithm=8
+data9 <- read.csv(file = "qestimator9.csv", header=TRUE) #Quantile algorithm=9
+```
+
+```{r}
+#printing the dataframe for longtime surveillance
+dfall
+```
+
+
+```{r}
+#making filtered dataframes for work, no work and a busy hour
+filter_data <-function(data,filter1,bool1,filter2,bool2,filter3,bool3){
+  del_list <- c()
+  count <- 1
+  for (i in 1:length(data$time)){
+    if((filter1[i]!=bool1)|(filter2[i]!=bool2)|(filter3[i]!=bool3)){
+      del_list[count] <- i
+      count <- count + 1
+    }
+  }
+  new_data <- data[-del_list, ]
+  return(new_data)
+}
+
+anti_filter_data <-function(data,filter1,bool1,filter2,bool2,filter3,bool3){
+  del_list <- c()
+  count <- 1
+  for (i in 1:length(data$time)){
+    if((filter1[i]!=bool1)&(filter2[i]!=bool2)&(filter3[i]!=bool3)){
+      del_list[count] <- i
+      count <- count + 1
+    }
+  }
+  new_data <- data[-del_list, ]
+  return(new_data)
+}
+
+df15_work <- filter_data(df15,df15$holiday,FALSE,df15$weekend,FALSE, df15$workhour,TRUE)
+df15_nowork <- anti_filter_data(df15,df15$holiday,TRUE,df15$weekend,TRUE, df15$workhour,FALSE)
+
+draw_work <- filter_data(draw,draw$holiday,FALSE,draw$weekend,FALSE, draw$workhour,TRUE)
+draw_nowork <- anti_filter_data(draw,draw$holiday,TRUE,draw$weekend,TRUE, draw$workhour,FALSE)
+
+filter_data_hour <- function(data,hour){
+  del_list <- c()
+  count <- 1
+  for (i in 1:length(data$time)){
+    if(hour(data$time[i])!=hour){
+      del_list[count] <- i
+      count <- count + 1
+    }
+  }
+  new_data <- data[-del_list, ]
+  return(new_data)
+}
+
+#choose busy hour 12-13
+df15_work12 <- filter_data_hour(df15_work,12)
+draw_work12 <- filter_data_hour(draw_work,12)
+```
+
+```{r}
+#printing all dataframes for nowcasting
+df15
+df15_work
+df15_nowork
+df15_work12
+```
+
+```{r}
+#printing the dataframes for the raw data
+draw
+draw_work
+draw_nowork
+draw_work12
+```
+
+
+```{r}
+#adding time column for plotting 
+df15$time2 <- ymd_hms(df15$time)
+draw$time2 <- ymd_hms(draw$time)
+```
+
+```{r}
+#plotting all raw data
+plot(draw$time2,draw$Leq,type="l",main="Raw data",xlab=" ",ylab="Noise level in dB")
+```
+
+```{r}
+par(mfrow=c(1,2))
+#plotting raw data for thursday 07.02.2019
+plot(draw$time2[13769:55006],draw$Leq[13769:55006],main="Raw data Thursday 07.02.2019",xlab="Time",ylab="Noise level in dB",ylim=c(40,80),type="l")
+#plotting raw data for saturday 09-02-2019
+plot(draw$time2[96648:138725],draw$Leq[96648:138725],main="Raw data Saturday 09.02.2019",xlab="Time",ylab="Noise level in dB",ylim=c(40,80),type="l")
+```
+
+
+```{r}
+#plotting the kernel density of the different dataframes for the raw data
+plot(density(draw$Leq,na.rm = TRUE),main=" ",xlab="Noise level in dB",ylab="Density",ylim = c(0,0.45),xlim = c(40,90))
+lines(density(draw_work$Leq,na.rm = TRUE),main="Work raw data",xlab="Noise level in dB",ylab="Density",ylim = c(0,0.45),xlim = c(40,90),col="pink")
+lines(density(draw_nowork$Leq,na.rm = TRUE),main="No work raw data",xlab="Noise level in dB",ylab="Density",ylim = c(0,0.45),xlim = c(40,90),col="lightblue")
+lines(density(draw_work12$Leq,na.rm = TRUE),main="Busy hour raw data",xlab="Noise level in dB",ylab="Density",ylim = c(0,0.45),xlim = c(40,90),col="blue")
+legend(70, 0.45, legend=c("All", "Work","No work","Busy hour"),
+       col=c("black","pink", "lightblue","blue"),lty=1:1,cex=0.8)
+
+```
+
+```{r}
+#plotting the ACF for the raw data
+par(mfrow=c(2,2))
+acf(draw$Leq,na.action = na.pass,xlab="Lag",ylab="All raw data ACF",ylim = c(0,0.9),lag.max=10000,main=" ")
+acf(draw_work$Leq,xlab="Lag",ylab="Work raw data ACF",na.action = na.pass,ylim = c(0,0.9),lag.max=10000,main=" ")
+acf(draw_nowork$Leq,xlab="Lag",ylab="No work raw data ACF",na.action = na.pass,ylim = c(0,0.9),lag.max=10000,main=" ")
+acf(draw_work12$Leq,ylab="Busy hour raw data ACF",na.action = na.pass,ylim = c(0,0.9),lag.max=1800,main=" ")
+```
+
+
+```{r}
+#Calculating the indicators standard deviation by bootstrapping with the Maritz-Jarrett method
+
+MJ <- function(p,n,X){
+  m <- floor(p*n+0.5)
+  A <- m-1
+  B <- n-m
+  C1 <- 0
+  C2 <- 0
+  for (i in 1:n){
+    W <- pbeta(i/n,A,B)-pbeta((i-1)/n,A,B)
+    C1 <- C1 + W*X[i]
+    C2 <- C2 + W*X[i]^2
+  }
+  return(sqrt(C2-C1^2))
+}
+
+bootstrap_MJ <- function(data,R,p,n){
+  MJ_sum=0
+  for (i in 1:R){
+    X <- sort(sample(data,n), decreasing = FALSE, na.last = NA)
+    MJ_sum <- MJ_sum + MJ(p,n,X)
+  }
+  return(MJ_sum/R)
+}
+
+data <- draw$Leq[!is.na(draw$Leq)]
+print("L10")
+bootstrap_MJ(data,1000,0.9,450)
+bootstrap_MJ(data,1000,0.9,90)
+bootstrap_MJ(data,1000,0.9,15)
+bootstrap_MJ(data,1000,0.9,7.5)
+
+print("L50")
+bootstrap_MJ(data,1000,0.5,450)
+bootstrap_MJ(data,1000,0.5,90)
+bootstrap_MJ(data,1000,0.5,15)
+bootstrap_MJ(data,1000,0.5,7.5)
+
+print("L90")
+bootstrap_MJ(data,1000,0.1,450)
+bootstrap_MJ(data,1000,0.1,90)
+bootstrap_MJ(data,1000,0.1,15)
+
+```
+
+```{r}
+#Plot values of the different indicators for d=all
+par(mfrow=c(2,2))
+
+plot(df15$time2,df15$L10,type="l",ylim=c(40,80),main="L10",xlab=" ",ylab="Noise level in dB")
+abline(h=dfall$L10, col="orange")
+abline(h=50, col="green")
+abline(h=60, col="red")
+legend(df15$time2[5420], 80, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+
+plot(df15$time2,df15$L50,type="l",ylim=c(40,80),main="L50",xlab=" ",ylab="Noise level in dB")
+abline(h=dfall$L50, col="orange")
+abline(h=45, col="green")
+abline(h=55, col="red")
+legend(df15$time2[5420], 80, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+
+plot(df15$time2,df15$L90,type="l",ylim=c(40,80),main="L90",xlab=" ",ylab="Noise level in dB")
+abline(h=dfall$L90, col="orange")
+abline(h=42, col="green")
+abline(h=52, col="red")
+legend(df15$time2[5420], 80, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+
+plot(df15$time2,df15$L1090,type="l",ylim=c(0,40),main="L1090",xlab=" ",ylab="Noise level in dB")
+#abline(h=dfall$L1090, col="orange")
+abline(h=3, col="green")
+abline(h=5, col="red")
+legend(df15$time2[5420], 40, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+```
+
+```{r}
+#plots for different indicators thursday 2019-02-07
+par(mfrow=c(2,2))
+
+#L10
+plot(df15$time2[32:128],df15$L10[32:128],ylim=c(40,65),main="L10 Thursday 07.02.2019",xlab="Time",ylab="Noise level in dB")
+abline(h=50, col="green")
+abline(h=60, col="red")
+abline(h=dfall$L10, col="orange")
+legend(df15$time2[100], 65, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+
+#MEDIAN
+plot(df15$time2[32:128],df15$L50[32:128],ylim=c(40,65),main="L50 Thursday 07.02.2019",xlab="Time",ylab="Noise level in dB")
+abline(h=45, col="green")
+abline(h=55, col="red")
+abline(h=dfall$L50, col="orange")
+legend(df15$time2[100], 65, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+
+#L90
+plot(df15$time2[32:128],df15$L90[32:128],ylim=c(40,65),main="L90 Thursday 07.02.2019",xlab="Time",ylab="Noise level in dB")
+abline(h=42, col="green")
+abline(h=52, col="red")
+abline(h=dfall$L90, col="orange")
+legend(df15$time2[100], 65, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+
+#L1090
+plot(df15$time2[32:128],df15$L1090[32:128],ylim=c(0,25),main="L1090 Thursday 07.02.2019",xlab="Time",ylab="Noise level in dB")
+abline(h=3, col="green")
+abline(h=5, col="red")
+#abline(h=dfall$L1090, col="orange")
+legend(df15$time2[100], 25, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+```
+
+```{r}
+#plots for different indicators saturday 2019-02-09
+par(mfrow=c(2,2))
+
+#L10
+plot(df15$time2[224:320],df15$L10[224:320],ylim=c(40,65),main="L10 Saturday 09.02.2019",xlab="Time",ylab="Noise level in dB")
+abline(h=50, col="green")
+abline(h=60, col="red")
+abline(h=dfall$L50, col="orange")
+legend(df15$time2[290], 65, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+
+#L50
+plot(df15$time2[224:320],df15$L50[224:320],ylim=c(40,65),main="L50 Saturday 09.02.2019",xlab="Time",ylab="Noise level in dB")
+abline(h=45, col="green")
+abline(h=55, col="red")
+abline(h=dfall$L50, col="orange")
+legend(df15$time2[290], 65, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+
+#L90
+plot(df15$time2[224:320],df15$L90[224:320],ylim=c(40,65),main="L90 Saturday 09.02.2019",xlab="Time",ylab="Noise level in dB")
+abline(h=42, col="green")
+abline(h=52, col="red")
+abline(h=dfall$L50, col="orange")
+legend(df15$time2[290], 65, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+
+#L1090
+plot(df15$time2[224:320],df15$L1090[224:320],ylim=c(0,25),main="L1090 Saturday 09.02.2019",xlab="Time",ylab="Noise level in dB")
+abline(h=3, col="green")
+abline(h=5, col="red")
+abline(h=dfall$L50, col="orange")
+legend(df15$time2[290], 25, legend=c("Good below","Poor above","Long time surveillance","Nowcasting"),
+       col=c("green","red","orange","black"),lty=1:1,cex=0.4)
+```
+
+
+```{r}
+#kernel density for all indicators and dataframes for nowcasting
+par(mfrow=c(2,2))
+
+#Density L10
+plot(density(df15$L10,na.rm = TRUE),ylim=c(0,0.6),xlim=c(40,75),main="L10",xlab="Noise level in dB")
+lines(density(df15_work$L10,na.rm = TRUE),xlim=c(40,85),col="pink")
+lines(density(df15_nowork$L10,na.rm = TRUE),xlim=c(40,85),col="lightblue")
+lines(density(df15_work12$L10,na.rm = TRUE),xlim=c(40,85),col="blue")
+abline(v=dfall$L10, col="orange")
+legend(62, 0.6, legend=c("All", "Work","No work","Busy hour","Long time surveillance"),
+       col=c("black","pink", "lightblue","blue","orange"),lty=1:1,cex=0.4)
+
+#Density L50
+plot(density(df15$L50,na.rm = TRUE),ylim=c(0,0.6),xlim=c(40,75),main="L50",xlab="Noise level in dB")
+lines(density(df15_work$L50,na.rm = TRUE),xlim=c(40,85),col="pink")
+lines(density(df15_nowork$L50,na.rm = TRUE),xlim=c(40,85),col="lightblue")
+lines(density(df15_work12$L50,na.rm = TRUE),xlim=c(40,85),col="blue")
+abline(v=dfall$L50, col="orange")
+legend(62, 0.6, legend=c("All", "Work","No work","Busy hour","Long time surveillance"),
+       col=c("black","pink", "lightblue","blue","orange"),lty=1:1,cex=0.4)
+
+#Density L90
+plot(density(df15$L90,na.rm = TRUE),ylim=c(0,0.6),xlim=c(40,75),main="L90",xlab="Noise level in dB")
+lines(density(df15_work$L90,na.rm = TRUE),xlim=c(40,85),col="pink")
+lines(density(df15_nowork$L90,na.rm = TRUE),xlim=c(40,85),col="lightblue")
+lines(density(df15_work12$L90,na.rm = TRUE),xlim=c(40,85),col="blue")
+abline(v=dfall$L90, col="orange")
+legend(62, 0.6, legend=c("All", "Work","No work","Busy hour","Long time surveillance"),
+       col=c("black","pink", "lightblue","blue","orange"),lty=1:1,cex=0.4)
+
+#Density L1090
+plot(density(df15$L1090,na.rm = TRUE),ylim=c(0,0.6),xlim=c(0,35),main="L1090",xlab="Noise level in dB")
+lines(density(df15_work$L1090,na.rm = TRUE),col="pink")
+lines(density(df15_nowork$L1090,na.rm = TRUE),col="lightblue")
+lines(density(df15_work12$L1090,na.rm = TRUE),col="blue")
+legend(22, 0.6, legend=c("All", "Work","No work","Busy hour","Long time surveillance"),
+       col=c("black","pink", "lightblue","blue","orange"),lty=1:1,cex=0.4)
+```
+
+
+```{r}
+#plots RMSE for all indicators T=15min dataframes
+T1 <- c(4,10,20,30,60,120,180,300,450)
+
+list1 <- c("L50_4","L50_10","L50_20","L50_30","L50_60","L50_120","L50_180","L50_300","L50_450")
+list2 <- c("L10_4","L10_10","L10_20","L10_30","L10_60","L10_120","L10_180","L10_300","L10_450")
+list3 <- c("L90_4","L90_10","L90_20","L90_30","L90_60","L90_120","L90_180","L90_300","L90_450")
+list4 <- c("L1090_4","L1090_10","L1090_20","L1090_30","L1090_60","L1090_120","L1090_180","L1090_300","L1090_450")
+
+RMSE <- function(list, data, y){
+  RMSE_list <- c()
+  count=1 
+  for (i in list){
+      y_estimat <- data[[i]]
+      sum <- 0
+      for (j in 1:length(data$time)){
+        if(isTRUE(is.na(y[j]-y_estimat[j]))==FALSE){
+          sum <- sum + (y[j]-y_estimat[j])^2
+        }
+      }
+      MSE <- sum/length(data$time)
+      RMSE_list[count] <- sqrt(MSE)
+      count <- count+1
+  }
+  return(RMSE_list)
+}
+
+RMSE_list_L50 <- RMSE(list1,df15,df15$L50)
+RMSE_list_L10 <- RMSE(list2,df15,df15$L10)
+RMSE_list_L90 <- RMSE(list3,df15,df15$L90)
+RMSE_list_L1090 <- RMSE(list4,df15,df15$L1090)
+
+RMSE_list_L50_work <- RMSE(list1,df15_work,df15_work$L50)
+RMSE_list_L10_work <- RMSE(list2,df15_work,df15_work$L10)
+RMSE_list_L90_work <- RMSE(list3,df15_work,df15_work$L90)
+RMSE_list_L1090_work <- RMSE(list4,df15_work,df15_work$L1090)
+
+RMSE_list_L50_nowork <- RMSE(list1,df15_nowork,df15_nowork$L50)
+RMSE_list_L10_nowork <- RMSE(list2,df15_nowork,df15_nowork$L10)
+RMSE_list_L90_nowork <- RMSE(list3,df15_nowork,df15_nowork$L90)
+RMSE_list_L1090_nowork <- RMSE(list4,df15_nowork,df15_nowork$L1090)
+
+RMSE_list_L50_work12 <- RMSE(list1,df15_work12,df15_work12$L50)
+RMSE_list_L10_work12 <- RMSE(list2,df15_work12,df15_work12$L10)
+RMSE_list_L90_work12 <- RMSE(list3,df15_work12,df15_work12$L90)
+RMSE_list_L1090_work12 <- RMSE(list4,df15_work12,df15_work12$L1090)
+
+par(mfrow=c(2,2))
+
+plot(T1,RMSE_list_L10,ylim=c(0,4),main="All",xlab="Sample interval in seconds",ylab="RMSE")
+points(T1,RMSE_list_L50,col="red")
+points(T1,RMSE_list_L90,col="green")
+points(T1,RMSE_list_L1090,col="orange")
+legend(0, 4, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,RMSE_list_L10_work,ylim=c(0,4),main="Work",xlab="Sample interval in seconds",ylab="RMSE")
+points(T1,RMSE_list_L50_work,col="red")
+points(T1,RMSE_list_L90_work,col="green")
+points(T1,RMSE_list_L1090_work,col="orange")
+legend(0, 4, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,RMSE_list_L10_nowork,ylim=c(0,4),main="No work",xlab="Sample interval in seconds",ylab="RMSE")
+points(T1,RMSE_list_L50_nowork,col="red")
+points(T1,RMSE_list_L90_nowork,col="green")
+points(T1,RMSE_list_L1090_nowork,col="orange")
+legend(0, 4, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,RMSE_list_L10_work12,ylim=c(0,4),main="Busy hour",xlab="Sample interval in seconds",ylab="RMSE")
+points(T1,RMSE_list_L50_work12,col="red")
+points(T1,RMSE_list_L90_work12,col="green")
+points(T1,RMSE_list_L1090_work12,col="orange")
+legend(0, 4, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+```
+
+```{r}
+#plot RMSE for total dataframe
+RMSE_alldata <- function(list, data, y){
+  RMSE_list <- c()
+  count=1 
+  for (i in list){
+      y_estimat <- data[[i]]
+      MSE <- (y-y_estimat)^2
+      RMSE_list[count] <- sqrt(MSE)
+      count <- count+1
+  }
+  return(RMSE_list)
+}
+
+RMSE_all_L50 <- RMSE_alldata(list1,dfall,dfall$L50)
+RMSE_all_L10 <- RMSE_alldata(list2,dfall,dfall$L10)
+RMSE_all_L90 <- RMSE_alldata(list3,dfall,dfall$L90)
+RMSE_all_L1090 <- RMSE_alldata(list4,dfall,dfall$L1090)
+
+plot(T1,RMSE_all_L10,ylim=c(0,0.1),main="Longtime surveillance",xlab="Sample interval in seconds",ylab="RMSE")
+points(T1,RMSE_all_L50,col="red")
+points(T1,RMSE_all_L90,col="green")
+legend(0, 0.1, legend=c("L10","L50","L90"),col=c("black","red", "green"),lty=1:1,cex=0.8)
+
+```
+```{r}
+#plotted densities and kullback leibler divergence between sample intervals
+
+plot(density(df15_nowork$L10,na.rm = TRUE),ylim=c(0,0.6),xlim=c(40,65),main="L10 No work",xlab="Noise level in dB")
+lines(density(df15_nowork$L10_60,na.rm = TRUE),col="blue")
+lines(density(df15_nowork$L10_180,na.rm = TRUE),col="lightblue")
+lines(density(df15_nowork$L10_450,na.rm = TRUE),col="pink")
+legend(60, 0.6, legend=c("s=2", "s=60","s=180","s=450"),col=c("black","blue","lightblue","pink"),lty=1:1,cex=0.8)
+
+kullback_leibler <- function(list, data, y){
+  kl_list <- c()
+  count=1 
+  y_true <- density(y,na.rm = TRUE)
+  for (i in list){
+      y_estimat <- density(data[[i]],na.rm=TRUE)
+      kl <- KLD(y_true$y,y_estimat$y)
+      kl_list[count] <- kl$sum.KLD.px.py
+      count <- count+1
+  }
+  return(kl_list)
+}
+
+par(mfrow=c(2,2))
+
+kl_L50 <- kullback_leibler(list1,df15,df15$L50)
+kl_L10 <- kullback_leibler(list2,df15,df15$L10)
+kl_L90 <- kullback_leibler(list3,df15,df15$L90)
+kl_L1090 <- kullback_leibler(list4,df15,df15$L1090)
+
+plot(T1,kl_L10,ylim=c(0,4),main="All",xlab="Sample interval in seconds",ylab="KLD",type="b")
+lines(T1,kl_L50,type="b",col="red")
+lines(T1,kl_L90,type="b",col="green")
+lines(T1,kl_L1090,type="b",col="orange")
+legend(350, 4, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+kl_L50_work <- kullback_leibler(list1,df15_work,df15_work$L50)
+kl_L10_work <- kullback_leibler(list2,df15_work,df15_work$L10)
+kl_L90_work <- kullback_leibler(list3,df15_work,df15_work$L90)
+kl_L1090_work <- kullback_leibler(list4,df15_work,df15_work$L1090)
+
+plot(T1,kl_L10_work,ylim=c(0,4),main="Work",xlab="Sample interval in seconds",ylab="KLD",type="b")
+lines(T1,kl_L50_work,type="b",col="red")
+lines(T1,kl_L90_work,type="b",col="green")
+lines(T1,kl_L1090_work,type="b",col="orange")
+legend(350, 4, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+kl_L50_nowork <- kullback_leibler(list1,df15_nowork,df15_nowork$L50)
+kl_L10_nowork <- kullback_leibler(list2,df15_nowork,df15_nowork$L10)
+kl_L90_nowork <- kullback_leibler(list3,df15_nowork,df15_nowork$L90)
+kl_L1090_nowork <- kullback_leibler(list4,df15_nowork,df15_nowork$L1090)
+
+plot(T1,kl_L10_nowork,ylim=c(0,4),main="No work",xlab="Sample interval in seconds",ylab="KLD",type="b")
+lines(T1,kl_L50_nowork,type="b",col="red")
+lines(T1,kl_L90_nowork,type="b",col="green")
+lines(T1,kl_L1090_nowork,type="b",col="orange")
+legend(350, 4, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+kl_L50_work12 <- kullback_leibler(list1,df15_work12,df15_work12$L50)
+kl_L10_work12 <- kullback_leibler(list2,df15_work12,df15_work12$L10)
+kl_L90_work12 <- kullback_leibler(list3,df15_work12,df15_work12$L90)
+kl_L1090_work12 <- kullback_leibler(list4,df15_work12,df15_work12$L1090)
+
+plot(T1,kl_L10_work12,ylim=c(0,4),main="Busy hour",ylab="KLD",type="b",xlab="Sample interval in seconds")
+lines(T1,kl_L50_work12,type="b",col="red")
+lines(T1,kl_L90_work12,type="b",col="green")
+lines(T1,kl_L1090_work12,type="b",col="orange")
+legend(350, 4, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+```
+
+
+```{r}
+#sets up functions to check classification 
+check_labeling <-function(data,y,y_estimat){
+  list <- c(0,0,0,0,0,0,0,0,0,0)
+  for (i in 1:length(data$time)){
+    label1 <- y[i]
+    label2 <- y_estimat[i]
+    if (is.na(label1)|is.na(label2)){
+      list[10]<- list[10]+1
+    }else if(label1=="good"){
+      if (label2=="good"){
+        list[1]<- list[1]+1
+      }else if (label2=="fair"){
+        list[2]<- list[2]+1
+      }else if (label2=="poor"){
+        list[3]<- list[3]+1
+      }
+    }else if(label1=="fair"){
+      if (label2=="good"){
+        list[4]<- list[4]+1
+      }else if (label2=="fair"){
+        list[5]<- list[5]+1
+      }else if (label2=="poor"){
+        list[6]<- list[6]+1
+      }
+    }else if(label1=="poor"){
+      if (label2=="good"){
+        list[7]<- list[7]+1
+      }else if (label2=="fair"){
+        list[8]<- list[8]+1
+      }else if (label2=="poor"){
+        list[9]<- list[9]+1
+      }
+    }
+  }
+  return(list)
+}
+
+labeling <- function(list, data, y){
+  labeling_list <- c()
+  count <- 1
+  for (i in list){
+      y_estimat <- data[[i]]
+      checked_labels <- check_labeling(data,y,y_estimat)
+      checked_labels[1:9] <- (checked_labels[1:9]/(length(data$time)-checked_labels[10]))*100
+      labeling_list[[count]] <- checked_labels
+      count <- count+1
+  }
+  return(labeling_list)
+}
+```
+
+
+```{r}
+#check classification of different indicators for nowcasting dataframes
+T <- c(4,10,20,30,60,120,180,300,450)
+list_L50_labels <- c("L50_4_labels","L50_10_labels","L50_20_labels","L50_30_labels","L50_60_labels","L50_120_labels","L50_180_labels","L50_300_labels","L50_450_labels")
+list_L10_labels <- c("L10_4_labels","L10_10_labels","L10_20_labels","L10_30_labels","L10_60_labels","L10_120_labels","L10_180_labels","L10_300_labels","L10_450_labels")
+list_L90_labels <- c("L90_4_labels","L90_10_labels","L90_20_labels","L90_30_labels","L90_60_labels","L90_120_labels","L90_180_labels","L90_300_labels","L90_450_labels")
+list_L1090_labels <- c("L1090_4_labels","L1090_10_labels","L1090_20_labels","L1090_30_labels","L1090_60_labels","L1090_120_labels","L1090_180_labels","L1090_300_labels","L1090_450_labels")
+
+labeling_L50 <- labeling(list_L50_labels,df15,df15$L50_labels)
+labeling_L10 <- labeling(list_L10_labels,df15,df15$L10_labels)
+labeling_L90 <- labeling(list_L90_labels,df15,df15$L90_labels)
+labeling_L1090 <- labeling(list_L1090_labels,df15,df15$L1090_labels)
+
+labeling_L50_work <- labeling(list_L50_labels,df15_work,df15_work$L50_labels)
+labeling_L10_work <- labeling(list_L10_labels,df15_work,df15_work$L10_labels)
+labeling_L90_work <- labeling(list_L90_labels,df15_work,df15_work$L90_labels)
+labeling_L1090_work <- labeling(list_L1090_labels,df15_work,df15_work$L1090_labels)
+
+labeling_L50_nowork <- labeling(list_L50_labels,df15_nowork,df15_nowork$L50_labels)
+labeling_L10_nowork <- labeling(list_L10_labels,df15_nowork,df15_nowork$L10_labels)
+labeling_L90_nowork <- labeling(list_L90_labels,df15_nowork,df15_nowork$L90_labels)
+labeling_L1090_nowork <- labeling(list_L1090_labels,df15_nowork,df15_nowork$L1090_labels)
+
+labeling_L50_work12 <- labeling(list_L50_labels,df15_work12,df15_work12$L50_labels)
+labeling_L10_work12 <- labeling(list_L10_labels,df15_work12,df15_work12$L10_labels)
+labeling_L90_work12 <- labeling(list_L90_labels,df15_work12,df15_work12$L90_labels)
+labeling_L1090_work12 <- labeling(list_L1090_labels,df15_work12,df15_work12$L1090_labels)
+```
+
+
+```{r}
+#plots percentage of classification sucess for nowcasting
+rightlabels <- function(labels){
+  right_list <- c()
+  for (i in 1:length(labels)){
+    right_list[i] <- labels[[i]][1]+labels[[i]][5]+labels[[i]][9]
+  }
+  return(right_list)
+}
+
+rightlabels_L50 <- rightlabels(labeling_L50)
+rightlabels_L10 <- rightlabels(labeling_L10)
+rightlabels_L90 <- rightlabels(labeling_L90)
+rightlabels_L1090 <- rightlabels(labeling_L1090)
+
+rightlabels_L50_work <- rightlabels(labeling_L50_work)
+rightlabels_L10_work <- rightlabels(labeling_L10_work)
+rightlabels_L90_work <- rightlabels(labeling_L90_work)
+rightlabels_L1090_work <- rightlabels(labeling_L1090_work)
+
+rightlabels_L50_nowork <- rightlabels(labeling_L50_nowork)
+rightlabels_L10_nowork <- rightlabels(labeling_L10_nowork)
+rightlabels_L90_nowork <- rightlabels(labeling_L90_nowork)
+rightlabels_L1090_nowork <- rightlabels(labeling_L1090_nowork)
+
+rightlabels_L50_work12 <- rightlabels(labeling_L50_work12)
+rightlabels_L10_work12 <- rightlabels(labeling_L10_work12)
+rightlabels_L90_work12 <- rightlabels(labeling_L90_work12)
+rightlabels_L1090_work12 <- rightlabels(labeling_L1090_work12)
+
+par(mfrow=c(2,2))
+
+plot(T1,rightlabels_L10,ylim=c(50,100),main="All",xlab="Sample interval in seconds",ylab="Classification sucess in %")
+points(T1,rightlabels_L50,col="red")
+points(T1,rightlabels_L90,col="green")
+points(T1,rightlabels_L1090,col="orange")
+legend(0, 70, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,rightlabels_L10_work,ylim=c(50,100),main="Work",xlab="Sample interval in seconds",ylab="Classification sucess in %")
+points(T1,rightlabels_L50_work,col="red")
+points(T1,rightlabels_L90_work,col="green")
+points(T1,rightlabels_L1090_work,col="orange")
+legend(0, 70, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,rightlabels_L10_nowork,ylim=c(50,100),main="No work",xlab="Sample interval in seconds",ylab="Classification sucess in %")
+points(T1,rightlabels_L50_nowork,col="red")
+points(T1,rightlabels_L90_nowork,col="green")
+points(T1,rightlabels_L1090_nowork,col="orange")
+legend(0, 70, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,rightlabels_L10_work,ylim=c(50,100),main="Busy hour",xlab="Sample interval in seconds",ylab="Classification sucess in %")
+points(T1,rightlabels_L50_work12,col="red")
+points(T1,rightlabels_L90_work12,col="green")
+points(T1,rightlabels_L1090_work12,col="orange")
+legend(0, 70, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+```
+
+```{r}
+#plot classification diagrams for nowcasting
+test <- matrix(unlist(labeling_L1090_work[[8]][1:9]), ncol = 3, byrow = TRUE)
+colnames(test) <- c("good","fair","poor")
+rownames(test) <- c("good","fair","poor")
+test <- melt(test)
+p_test <- ggplot(data = test, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() + labs(fill = "%") + labs(x="Given True")+labs(y="Classified as")+labs(title="Work L1090, s = 300")+scale_fill_gradient(low = "white", high = "red",limits = c(0,50)) 
+
+test2 <- matrix(unlist(labeling_L50_work[[5]][1:9]), ncol = 3, byrow = TRUE)
+colnames(test2) <- c("good","fair","poor")
+rownames(test2) <- c("good","fair","poor")
+test2 <- melt(test2)
+p_test2 <- ggplot(data = test2, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() + labs(fill = "%") + labs(x="Given True")+labs(y="Classified as")+labs(title="Work L50, s = 60")+scale_fill_gradient(low = "white", high = "red",limits = c(0,50))
+
+figure <- ggarrange(p_test, p_test2,ncol = 2, nrow = 1)
+figure
+```
+
+
+```{r}
+#plots classification RMSE where one class wrong weights 1, two classes wrong weights 4
+RMSE_class <- function(labeling,data){
+  RMSE_list <- c()
+  count=1 
+  for (i in 1:length(labeling)){
+      labels <- labeling[[i]][1:9]*(length(data$time)-labeling[[i]][10])/100
+      sum <- labels[2]+4*labels[3]+labels[4]+labels[6]+4*labels[7]+labels[8]
+      RMSE_list[count] <- sum/(length(data$time)-labeling[[i]][10])
+      count <- count+1
+  }
+  return(RMSE_list)
+}
+
+RMSE_class_L50 <- RMSE_class(labeling_L50,df15)
+RMSE_class_L10 <- RMSE_class(labeling_L10,df15)
+RMSE_class_L90 <- RMSE_class(labeling_L90,df15)
+RMSE_class_L1090 <- RMSE_class(labeling_L1090,df15)
+
+RMSE_class_L50_work <- RMSE_class(labeling_L50_work,df15_work)
+RMSE_class_L10_work <- RMSE_class(labeling_L10_work,df15_work)
+RMSE_class_L90_work <- RMSE_class(labeling_L90_work,df15_work)
+RMSE_class_L1090_work <- RMSE_class(labeling_L1090_work,df15_work)
+
+RMSE_class_L50_nowork <- RMSE_class(labeling_L50_nowork,df15_nowork)
+RMSE_class_L10_nowork <- RMSE_class(labeling_L10_nowork,df15_nowork)
+RMSE_class_L90_nowork <- RMSE_class(labeling_L90_nowork,df15_nowork)
+RMSE_class_L1090_nowork <- RMSE_class(labeling_L1090_nowork,df15_nowork)
+
+RMSE_class_L50_work12 <- RMSE_class(labeling_L50_work12,df15_work12)
+RMSE_class_L10_work12 <- RMSE_class(labeling_L10_work12,df15_work12)
+RMSE_class_L90_work12 <- RMSE_class(labeling_L90_work12,df15_work12)
+RMSE_class_L1090_work12 <- RMSE_class(labeling_L1090_work12,df15_work12)
+
+
+par(mfrow=c(2,2))
+
+plot(T1,RMSE_class_L10,ylim=c(0,1.2),main="All",xlab="Sample interval in seconds",ylab="Classification RMSE")
+points(T1,RMSE_class_L50,col="red")
+points(T1,RMSE_class_L90,col="green")
+points(T1,RMSE_class_L1090,col="orange")
+legend(0, 1.2, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,RMSE_class_L10_work,ylim=c(0,1.2),main="Work",xlab="Sample interval in seconds",ylab="Classification RMSE")
+points(T1,RMSE_class_L50_work,col="red")
+points(T1,RMSE_class_L90_work,col="green")
+points(T1,RMSE_class_L1090_work,col="orange")
+legend(0, 1.2, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,RMSE_class_L10_nowork,ylim=c(0,1.2),main="No work",xlab="Sample interval in seconds",ylab="Classification RMSE")
+points(T1,RMSE_class_L50_nowork,col="red")
+points(T1,RMSE_class_L90_nowork,col="green")
+points(T1,RMSE_class_L1090_nowork,col="orange")
+legend(0, 1.2, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,RMSE_class_L10_work12,ylim=c(0,1.2),main="Busy hour",xlab="Sample interval in seconds",ylab="Classification RMSE")
+points(T1,RMSE_class_L50_work12,col="red")
+points(T1,RMSE_class_L90_work12,col="green")
+points(T1,RMSE_class_L1090_work12,col="orange")
+legend(0, 1.2, legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+```
+
+
+
+```{r}
+#Plots the error for the indicators represented by box plots
+par(mfrow=c(1,3))
+
+boxplot(df15_work$L10-df15_work$L10_10, df15_work$L50-df15_work$L50_10, df15_work$L90-df15_work$L90_10, df15_work$L1090-df15_work$L1090_10,
+main = "Sample interval 10 sec",
+names = c("L10", "L50", "L90", "L1090"),
+col = c("grey", "red", "green", "orange"),
+las = 2,
+horizontal = FALSE,
+notch = TRUE,
+ylim = c(-20,10),
+ylab = "dB"
+)
+
+boxplot(df15_work$L10-df15_work$L10_60, df15_work$L50-df15_work$L50_60, df15_work$L90-df15_work$L90_60, df15_work$L1090-df15_work$L1090_60,
+main = "Sample interval 60 sec",
+names = c("L10", "L50", "L90", "L1090"),
+col = c("grey", "red", "green", "orange"),
+las = 2,
+horizontal = FALSE,
+notch = TRUE,
+ylim = c(-20,10),
+ylab = "dB"
+)
+
+boxplot(df15_work$L10-df15_work$L10_180, df15_work$L50-df15_work$L50_180, df15_work$L90-df15_work$L90_180, df15_work$L1090-df15_work$L1090_180,
+main = "Sample interval 180 sec",
+names = c("L10", "L50", "L90", "L1090"),
+col = c("grey", "red", "green", "orange"),
+las = 2,
+horizontal = FALSE,
+notch = TRUE,
+ylim = c(-20,10),
+ylab = "dB"
+)
+```
+
+
+```{r}
+#Plotting the utilityfunction for RMSE and nowcasting
+
+energy <- c(50,20,10,7,3,2,1,0.7,0.4)
+
+cost_L10 <- (RMSE_list_L10)^2+energy
+cost_L50 <- (RMSE_list_L50)^2+energy
+cost_L90 <- (RMSE_list_L90)^2+energy
+cost_L1090 <- (RMSE_list_L1090)^2+energy
+
+cost_L10_work <- (RMSE_list_L10_work)^2+energy
+cost_L50_work <- (RMSE_list_L50_work)^2+energy
+cost_L90_work <- (RMSE_list_L90_work)^2+energy
+cost_L1090_work <- (RMSE_list_L1090_work)^2+energy
+
+cost_L10_nowork <- (RMSE_list_L10_nowork)^2+energy
+cost_L50_nowork <- (RMSE_list_L50_nowork)^2+energy
+cost_L90_nowork <- (RMSE_list_L90_nowork)^2+energy
+cost_L1090_nowork <- (RMSE_list_L1090_nowork)^2+energy
+
+cost_L10_work12 <- (RMSE_list_L10_work12)^2+energy
+cost_L50_work12 <- (RMSE_list_L50_work12)^2+energy
+cost_L90_work12 <- (RMSE_list_L90_work12)^2+energy
+cost_L1090_work12 <- (RMSE_list_L1090_work12)^2+energy
+
+par(mfrow=c(2,2))
+
+plot(T1,cost_L10,type="l",ylim=c(0,20),xlab="Sample interval in seconds",ylab="Cost",main="All")
+lines(T1,cost_L50,col="red")
+lines(T1,cost_L90,col="green")
+lines(T1,cost_L1090,col="orange")
+points(c(60,180,180,60),c(min(cost_L10),min(cost_L50),min(cost_L90),min(cost_L1090)),col=c("black","red", "green","orange"),pch=20)
+legend(350,20,legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,cost_L10_work,type="l",ylim=c(0,20),xlab="Sample interval in seconds",ylab="Cost",main="Work")
+lines(T1,cost_L50_work,col="red")
+lines(T1,cost_L90_work,col="green")
+lines(T1,cost_L1090_work,col="orange")
+points(c(60,180,180,60),c(min(cost_L10_work),min(cost_L50_work),min(cost_L90_work),min(cost_L1090_work)),col=c("black","red", "green","orange"),pch=20)
+legend(350,20,legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,cost_L10_nowork,type="l",ylim=c(0,20),xlab="Sample interval in seconds",ylab="Cost",main="No work")
+lines(T1,cost_L50_nowork,col="red")
+lines(T1,cost_L90_nowork,col="green")
+lines(T1,cost_L1090_nowork,col="orange")
+points(c(60,180,180,60),c(min(cost_L10_nowork),min(cost_L50_nowork),min(cost_L90_nowork),min(cost_L1090_nowork)),col=c("black","red", "green","orange"),pch=20)
+legend(350,20,legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+plot(T1,cost_L10_work12,type="l",ylim=c(0,20),xlab="Sample interval in seconds",ylab="Cost",main="Busy hour")
+lines(T1,cost_L50_work12,col="red")
+lines(T1,cost_L90_work12,col="green")
+lines(T1,cost_L1090_work12,col="orange")
+points(c(60,180,180,60),c(min(cost_L10_work12),min(cost_L50_work12),min(cost_L90_work12),min(cost_L1090_work12)),col=c("black","red", "green","orange"),pch=20)
+legend(350,20,legend=c("L10", "L50","L90","L1090"),col=c("black","red", "green","orange"),lty=1:1,cex=0.4)
+
+```
+
+
+```{r}
+#plots RMSE for L10 for all quantile estimators
+
+RMSE_list_L10_q1 <- RMSE(list2,data1,data1$L10)
+RMSE_list_L10_q2 <- RMSE(list2,data2,data2$L10)
+RMSE_list_L10_q3 <- RMSE(list2,data3,data3$L10)
+RMSE_list_L10_q4 <- RMSE(list2,data4,data4$L10)
+RMSE_list_L10_q5 <- RMSE(list2,data5,data5$L10)
+RMSE_list_L10_q6 <- RMSE(list2,data6,data6$L10)
+RMSE_list_L10_q7 <- RMSE(list2,data7,data7$L10)
+RMSE_list_L10_q8 <- RMSE(list2,data8,data8$L10)
+RMSE_list_L10_q9 <- RMSE(list2,data9,data9$L10)
+
+plot(T1,RMSE_list_L10_q1,main="All",xlab="Sample interval in seconds",ylab="RMSE",type="b")
+lines(T1, RMSE_list_L10_q2,col="blue",type="b")
+lines(T1, RMSE_list_L10_q3,col="pink",type="b")
+lines(T1, RMSE_list_L10_q4,col="orange",type="b")
+lines(T1, RMSE_list_L10_q5,col="lightblue",type="b")
+lines(T1, RMSE_list_L10_q6,col="purple",type="b")
+lines(T1, RMSE_list_L10_q7,col="grey",type="b")
+lines(T1, RMSE_list_L10_q8,col="red",type="b")
+lines(T1, RMSE_list_L10_q9,col="green",type="b")
+legend(350, 1.5, legend=c("Type 1", "Type 2","Type 3","Type 4","Type 5","Type 6","Type 7","Type 8","Type 9"),col=c("black","blue","pink","orange","lightblue","purple","grey","red","green"),lty=1:1,cex=0.8)
+
+```
+
+
+```{r}
+#Comparing quantile algorithms to the reference type8 for L10 with different sample intervals
+
+quantile_error <- function(list, data1, data2){
+  error_list <- c()
+  count <- 1
+  for (i in list){
+      y <- data1[[i]]
+      y_estimat <- data2[[i]]
+      error <- 0
+      for (j in 1:length(data2$time)){
+        if(isTRUE(is.na(y[j]-y_estimat[j]))==FALSE){
+            error <- error + abs(y[j]-y_estimat[j])
+        }
+      }
+      error_list[count] <- error/length(data2$time)
+      count <- count + 1
+  }
+  return(error_list)
+}
+
+
+error_q1 <- quantile_error(list2, data8, data1)
+error_q2 <- quantile_error(list2, data8, data2)
+error_q3 <- quantile_error(list2, data8, data3)
+error_q4 <- quantile_error(list2, data8, data4)
+error_q5 <- quantile_error(list2, data8, data5)
+error_q6 <- quantile_error(list2, data8, data6)
+error_q7 <- quantile_error(list2, data8, data7)
+error_q9 <- quantile_error(list2, data8, data9)
+
+plot(T1,error_q1,type="b",ylim= c(0,1.37),xlab = "Sample interval in seconds",ylab = "Quantile error in dB",main ="All")
+lines(T1, error_q2,col="blue",type="b")
+lines(T1, error_q3,col="pink",type="b")
+lines(T1, error_q4,col="orange",type="b")
+lines(T1, error_q5,col="lightblue",type="b")
+lines(T1, error_q6,col="purple",type="b")
+lines(T1, error_q7,col="grey",type="b")
+lines(T1, error_q9,col="green",type="b")
+legend(350, 1.4, legend=c("Type 1", "Type 2","Type 3","Type 4","Type 5","Type 6","Type 7","Type 9"),col=c("black","blue","pink","orange","lightblue","purple","grey","green"),lty=1:1,cex=0.8)
+
+```
